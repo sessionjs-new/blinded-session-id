@@ -598,31 +598,35 @@ const generateBlindingFactor = (serverPk: string) => {
   return sodium.crypto_core_ed25519_scalar_reduce(serverPkHash)
 }
 
-export const generateKAs = (sessionId: string, serverPk: string): Uint8Array[] => {
+export const generateKA = (sessionId: string, serverPk: string): Uint8Array => {
   const sessionIdNoPrefix = sessionId.substring(2)
   const kBytes = generateBlindingFactor(serverPk)
   const xEd25519Key = sodium.from_hex(convertToEd25519Key(sessionIdNoPrefix))
   const kA = combineKeys(kBytes, xEd25519Key)
-  const kA2 = cloneDeep(kA)
-  kA2[31] = kA[31] ^ 0b1000_0000
 
-  return [kA, kA2]
+  return kA
 }
 
-export const generateBlindedIds = (sessionId: string, serverPk: string): string[] => {
-  const [kA, kA2] = generateKAs(sessionId, serverPk)
-  return ['15' + sodium.to_hex(kA), '15' + sodium.to_hex(kA2)]
+export const generateBlindedKeys = (sessionId: string, serverPk: string): Uint8Array[] => {
+  const kA = generateKA(sessionId, serverPk)
+  const key1 = kA
+
+  const modifiedByte = kA[31] & 0x7F
+  const key2 = Buffer.concat([kA.slice(0, 31), Buffer.from([modifiedByte])])
+
+  return [key1, key2]
 }
 
 export const blindSessionId = ({ sessionId, serverPk }: {
   sessionId: string
   serverPk: string
 }): string => {
-  const [kA, kA2] = generateKAs(sessionId, serverPk)
+  const [key1, key2] = generateBlindedKeys(sessionId, serverPk)
 
-  if (!(kA[31] & 0x80)) {
-    return '15' + sodium.to_hex(kA2)
+  const isKey2 = key1[31] & 0x80
+  if (isKey2) {
+    return '15' + sodium.to_hex(key2)
   }
 
-  return '15' + sodium.to_hex(kA)
+  return '15' + sodium.to_hex(key1)
 }
